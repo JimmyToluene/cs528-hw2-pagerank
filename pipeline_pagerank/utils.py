@@ -70,6 +70,31 @@ def print_summary_box(title, stats):
         print(f"  |{line:<{width}}|")
     print(f"  +{'-' * width}+\n")
 
+def print_dict_sanity_check(data, label="Data", num_preview=5):
+    """
+    Print sanity check info for a dictionary of page_id -> list mappings.
+    Works for both outgoing and incoming link dictionaries.
+
+    Args:
+        data (dict): page_id (str) -> list of link targets/sources
+        label (str): Label for display (e.g., "Outgoing", "Incoming")
+        num_preview (int): Number of pages to preview
+    """
+    total_links = sum(len(v) for v in data.values())
+    zero_links = sum(1 for v in data.values() if len(v) == 0)
+
+    print_summary_box(f"{label} Sanity Check", {
+        "Total files": len(data),
+        "Total links": total_links,
+        "Avg links/file": f"{total_links / len(data):.1f}" if data else "N/A",
+        "Files with zero links": zero_links,
+    })
+
+    print_step(f"First {num_preview} pages (sorted by ID):")
+    for page_id in sorted(data.keys(), key=lambda x: int(x))[:num_preview]:
+        preview = data[page_id][:5]
+        print(f"      Page {page_id}: {len(data[page_id])} links -> {preview}...")
+    print()
 
 class Timer:
     """Context manager for timing code blocks."""

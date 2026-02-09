@@ -8,7 +8,7 @@ import os
 import io
 from google.cloud import storage
 from google.cloud.storage import transfer_manager
-from .utils import print_stage, print_step, print_success, print_summary_box, Timer
+from pipeline_pagerank.utils import print_stage, print_step, print_success, print_summary_box, Timer
 
 
 def parse_html(text):
@@ -47,7 +47,7 @@ def read_gcs_files(bucket_name, prefix="generated_htmls/"):
 
         # Filter out folder blobs, keep only .html files
         with Timer("Listing blobs"):
-            blobs = [b for b in bucket.list_blobs(prefix=prefix) if b.name.endswith('.html')][:100]
+            blobs = [b for b in bucket.list_blobs(prefix=prefix) if b.name.endswith('.html')]
         print_success(f"Found {len(blobs)} HTML files")
 
         # --- Step 2: Bulk download all blobs into memory ---

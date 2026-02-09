@@ -1,8 +1,11 @@
 # main.py
 
 import argparse
-import pipeline_pagerank.stage1_read_from_gcs
 
+import pipeline_pagerank.stage1_read_from_gcs
+import pipeline_pagerank.stage2_stats
+import pipeline_pagerank.stage3_pagerank
+import pipeline_pagerank.utils as utils
 
 def main():
     parser = argparse.ArgumentParser()
@@ -13,16 +16,14 @@ def main():
 
     # Stage 1
     outgoing = pipeline_pagerank.stage1_read_from_gcs.read_gcs_files(args.bucket, args.prefix)
+    utils.print_dict_sanity_check(outgoing, "Outgoing")
 
-    # Quick sanity checks
-    print(f"Total files: {len(outgoing)}")
-    print(f"Total outgoing links: {sum(len(v) for v in outgoing.values())}")
-    print(f"Files with zero links: {sum(1 for v in outgoing.values() if len(v) == 0)}")
+    # Stage 2
+    incoming, outgoing_stats, incoming_stats = pipeline_pagerank.stage2_stats.run_stats(outgoing)
+    utils.print_dict_sanity_check(incoming, "Incoming")
 
-    # Show first 5 pages sorted by page ID
-    for page_id in sorted(outgoing.keys(), key=lambda x: int(x))[:5]:
-        print(f"Page {page_id}: {len(outgoing[page_id])} links → {outgoing[page_id][:5]}...")
-
+    # Stage 3
+    pr = pipeline_pagerank.stage3_pagerank.compute_pagerank(outgoing, incoming)
 
 if __name__ == "__main__":
     main()
