@@ -41,7 +41,7 @@ def main():
 
     # Stage 1
     outgoing = pipeline_pagerank.stage1_read_from_gcs.read_gcs_files(
-        args.bucket, args.prefix, use_gcloud=args.use_gcloud, progress=args.progress
+        args.bucket, args.prefix, use_gcloud=args.use_gcloud, progress=args.progress, limit=args.limit
     )
     # utils.print_dict_sanity_check(outgoing, "Outgoing")
 

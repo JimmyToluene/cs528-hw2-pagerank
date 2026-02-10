@@ -108,7 +108,7 @@ def _download_with_progress(blobs, max_workers):
     return downloaded
 
 
-def _download_with_gcloud(bucket_name, prefix):
+def _download_with_gcloud(bucket_name, prefix, limit=None):
     """
     Fast path — uses gcloud storage cp command via subprocess.
 
@@ -119,6 +119,11 @@ def _download_with_gcloud(bucket_name, prefix):
     Downloads files to a temporary directory, reads them into memory,
     then cleans up.
 
+    Args:
+        bucket_name (str): GCS bucket name
+        prefix (str): Folder prefix within bucket
+        limit (int, optional): Maximum number of files to download. If None, download all.
+
     Returns:
         dict: blob_name -> raw bytes
     """
@@ -128,19 +133,21 @@ def _download_with_gcloud(bucket_name, prefix):
     try:
         # Construct GCS path and download using gcloud
         gcs_path = f"gs://{bucket_name}/{prefix}*"
-        print_step(f"Using gcloud storage cp from {gcs_path}")
+        limit_msg = f" (limiting to {limit} files)" if limit else ""
+        print_step(f"Using gcloud storage cp from {gcs_path}{limit_msg}")
+        print()  # Add blank line before gcloud output
 
-        # Run gcloud storage cp command
-        # -r for recursive, redirect stderr to check for errors
-        result = subprocess.run(
-            ['gcloud', 'storage', 'cp', '-r', gcs_path, temp_dir],
-            capture_output=True,
-            text=True,
-            check=False
-        )
+        # Run gcloud storage cp command with native progress output
+        # gcloud will show progress bars, transfer speeds, and completion status
+        try:
+            subprocess.run(
+                ['gcloud', 'storage', 'cp', '-r', gcs_path, temp_dir],
+                check=True  # Raises CalledProcessError on failure
+            )
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"gcloud storage cp failed with exit code {e.returncode}")
 
-        if result.returncode != 0:
-            raise RuntimeError(f"gcloud storage cp failed: {result.stderr}")
+        print()  # Add blank line after gcloud output
 
         # Read all downloaded HTML files into memory
         downloaded = {}
@@ -152,7 +159,13 @@ def _download_with_gcloud(bucket_name, prefix):
                 if file.endswith('.html'):
                     html_files.append(os.path.join(root, file))
 
-        print_success(f"Downloaded {len(html_files)} HTML files via gcloud")
+        # Apply limit if specified
+        total_downloaded = len(html_files)
+        if limit is not None and limit < len(html_files):
+            html_files = sorted(html_files)[:limit]
+            print_success(f"Downloaded {total_downloaded} files, limiting to {limit} for processing")
+        else:
+            print_success(f"Processing {len(html_files)} HTML files via gcloud")
 
         # Read each file into memory
         for filepath in html_files:
@@ -170,7 +183,7 @@ def _download_with_gcloud(bucket_name, prefix):
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def read_gcs_files(bucket_name, prefix="generated_htmls/", use_gcloud=True, progress=True):
+def read_gcs_files(bucket_name, prefix="generated_htmls/", use_gcloud=True, progress=True, limit=None):
     """
     Read and parse all HTML files from a GCS bucket.
 
@@ -182,6 +195,7 @@ def read_gcs_files(bucket_name, prefix="generated_htmls/", use_gcloud=True, prog
         progress (bool): If True and use_gcloud=False, use experimental tqdm progress bar.
                          If False and use_gcloud=False, use stable transfer_manager.download_many().
                          Ignored when use_gcloud=True.
+        limit (int, optional): Maximum number of files to download. If None, download all files.
 
     Returns:
         dict: page_id (str) -> list of outgoing link target IDs (list[str])
@@ -194,7 +208,7 @@ def read_gcs_files(bucket_name, prefix="generated_htmls/", use_gcloud=True, prog
         if use_gcloud:
             # Fast path: use gcloud storage cp command
             with Timer("Download (gcloud)"):
-                downloaded = _download_with_gcloud(bucket_name, prefix)
+                downloaded = _download_with_gcloud(bucket_name, prefix, limit=limit)
         else:
             # Original path: use Python client library
             print_step(f"Connecting to bucket: {bucket_name}")
@@ -204,6 +218,11 @@ def read_gcs_files(bucket_name, prefix="generated_htmls/", use_gcloud=True, prog
             with Timer("Listing blobs"):
                 blobs = [b for b in bucket.list_blobs(prefix=prefix) if b.name.endswith('.html')]
             print_success(f"Found {len(blobs)} HTML files")
+
+            # Apply limit if specified
+            if limit is not None and limit < len(blobs):
+                blobs = blobs[:limit]
+                print_success(f"Limiting to {limit} files")
 
             max_workers = min(32, (os.cpu_count() or 4) + 4)
             mode = "experimental (tqdm)" if progress else "stable (transfer_manager)"
