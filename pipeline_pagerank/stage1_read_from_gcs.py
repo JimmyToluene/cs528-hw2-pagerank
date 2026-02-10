@@ -184,19 +184,42 @@ def _download_with_gcloud(bucket_name, prefix, limit=None):
             print_success(f"Downloaded {downloaded_count} files via gcloud cp -r")
 
         else:
-            # No limit - use full recursive download (fastest)
-            print_step(f"Downloading all files with gcloud cp -r from {gcs_wildcard}")
+            # Batched download — avoids GCS throttling on Cloud Shell
+            batch_size = 200
+            gcs_base = f"gs://{bucket_name}/{prefix}"
+
+            print_step(f"Downloading files in batches of {batch_size} from {gcs_base}...")
             print()
 
-            try:
+            batch_num = 0
+            total_downloaded = 0
+
+            while True:
+                start = batch_num * batch_size
+                batch_uris = [f"{gcs_base}{i}.html" for i in range(start, start + batch_size)]
+                batch_num += 1
+
+                print(f"  Batch {batch_num} (files {start}–{start + batch_size - 1})...", end='\r')
+
                 subprocess.run(
-                    ['gcloud', 'storage', 'cp', '-r', gcs_wildcard, temp_dir],
-                    check=True
+                    ['gcloud', 'storage', 'cp'] + batch_uris + [temp_dir],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
                 )
-            except subprocess.CalledProcessError as e:
-                raise RuntimeError(f"gcloud storage cp failed with exit code {e.returncode}")
+
+                # Count total html files downloaded so far
+                html_count = sum(
+                    1 for _, _, files in os.walk(temp_dir)
+                    for f in files if f.endswith('.html')
+                )
+                newly_downloaded = html_count - total_downloaded
+                total_downloaded = html_count
+
+                # If we got fewer files than batch_size, we've passed the end
+                if newly_downloaded < batch_size:
+                    break
 
             print()
+            print_success(f"Downloaded {total_downloaded} files in {batch_num} batches")
 
         # Walk through temp directory to find downloaded HTML files
         html_files = []
