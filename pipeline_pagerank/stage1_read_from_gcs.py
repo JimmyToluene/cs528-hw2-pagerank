@@ -161,10 +161,14 @@ def _download_with_gcloud(bucket_name, prefix, limit=None):
             batch = all_uris[i:i + batch_size]
             batch_num = i // batch_size + 1
 
-            subprocess.run(
+            print(f"  Batch {batch_num}/{num_batches} downloading...", end='\r')
+
+            result = subprocess.run(
                 ['gcloud', 'storage', 'cp', '-r'] + batch + [temp_dir],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True
             )
+            if result.returncode != 0:
+                print(f"\n  [WARN] Batch {batch_num} error: {result.stderr.strip()}")
 
             total_downloaded += len(batch)
             elapsed = time.time() - t_start
