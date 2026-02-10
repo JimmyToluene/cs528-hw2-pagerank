@@ -16,7 +16,7 @@
 
 import argparse
 
-import pipeline_pagerank.stage1_read_from_gcs
+from pipeline_pagerank.stage1_read import read_files
 import pipeline_pagerank.stage2_stats
 import pipeline_pagerank.stage3_pagerank
 import pipeline_pagerank.stage4_validation
@@ -24,22 +24,20 @@ import pipeline_pagerank.utils as utils
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--limit', type=int, default=None, help="Limit number of files to download (for testing)")
-    parser.add_argument('--bucket', default='cs528-hw2-jimmyjia')
-    parser.add_argument('--prefix', default='generated_htmls/')
-    parser.add_argument('--progress', action='store_true', default=True,
-                        help="Show download progress bar (experimental, default: on)")
+    parser.add_argument('source', nargs='?', default='cs528-hw2-jimmyjia',
+                        help="GCS bucket name or local directory path (default: cs528-hw2-jimmyjia)")
+    parser.add_argument('--limit', type=int, default=None, help="Limit number of files to read (for testing)")
+    parser.add_argument('--prefix', default='generated_htmls/', help="GCS folder prefix (ignored for local)")
+    parser.add_argument('--progress', action='store_true', default=False,
+                        help="Show tqdm progress bar for GCS (experimental, slower)")
     parser.add_argument('--no-progress', dest='progress', action='store_false',
-                        help="Use stable transfer_manager download (no progress bar)")
+                        help="Use stable transfer_manager download (default)")
     args = parser.parse_args()
 
     utils.print_project_banner()
 
-    # Stage 1
-    outgoing = pipeline_pagerank.stage1_read_from_gcs.read_gcs_files(
-        args.bucket, args.prefix, progress=args.progress
-    )
-    # utils.print_dict_sanity_check(outgoing, "Outgoing")
+    # Stage 1 — auto-detects GCS bucket vs local directory
+    outgoing = read_files(args.source, prefix=args.prefix, limit=args.limit, progress=args.progress)
 
     # Stage 2
     incoming, outgoing_stats, incoming_stats = pipeline_pagerank.stage2_stats.run_stats(outgoing)
