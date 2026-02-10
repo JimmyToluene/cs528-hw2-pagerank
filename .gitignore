@@ -1,0 +1,7 @@
+.venv/
+.idea/
+__pycache__/
+*.pyc
+generated_htmls/
+random_generated/
+docs/

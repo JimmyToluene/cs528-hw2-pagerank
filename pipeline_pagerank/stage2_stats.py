@@ -1,5 +1,15 @@
+# stage2_stats.py
+#
+# Project: CS528 HW2 — PageRank Pipeline
+# Author:  Haozhe Jia <jimmyjia@bu.edu>
+# Course:  CS528 Cloud Computing, Boston University, Spring 2026
+#
+# Description:
+#   Stage 2 — Build incoming link index and compute link statistics
+#   (min, max, average, median, quintiles) for both directions.
+
 import numpy as np
-from pipeline_pagerank.utils import print_stage, print_step, print_success, print_summary_box, Timer
+from pipeline_pagerank.utils import print_stage, print_step, print_success, print_side_by_side_boxes, Timer
 
 
 def build_incoming(outgoing):
@@ -12,31 +22,29 @@ def build_incoming(outgoing):
     Returns:
         dict: page_id -> list of source page_ids that link to it
     """
-    # Initialize all incoming pages with empty lists
     incoming = {page_id: [] for page_id in outgoing}
 
     for source, targets in outgoing.items():
         for target in targets:
-            # Only count links to pages that exist in our dataset
             if target in incoming:
                 incoming[target].append(source)
 
     return incoming
 
-def compute_link_stats(link_counts, label):
+
+def compute_link_stats(link_counts):
     """
-    Compute and display statistics for a list of link counts.
+    Compute statistics for a list of link counts.
 
     Args:
         link_counts (list[int]): Number of links per page
-        label (str): Label for display (e.g., "Outgoing" or "Incoming")
 
     Returns:
-        dict: Computed statistics
+        dict: Computed statistics (all values as strings for display)
     """
     values = np.array(link_counts)
 
-    stats = {
+    return {
         "Min": int(np.min(values)),
         "Max": int(np.max(values)),
         "Average": f"{np.mean(values):.2f}",
@@ -46,9 +54,6 @@ def compute_link_stats(link_counts, label):
         "Q3 (60th)": f"{np.percentile(values, 60):.2f}",
         "Q4 (80th)": f"{np.percentile(values, 80):.2f}",
     }
-
-    print_summary_box(f"{label} Link Statistics", stats)
-    return stats
 
 
 def run_stats(outgoing):
@@ -69,14 +74,17 @@ def run_stats(outgoing):
         with Timer("Building incoming links"):
             incoming = build_incoming(outgoing)
 
-        # Step 2: Compute outgoing stats
-        print_step("Computing outgoing link statistics...")
+        # Step 2: Compute stats for both directions
+        print_step("Computing link statistics...")
         outgoing_counts = [len(v) for v in outgoing.values()]
-        outgoing_stats = compute_link_stats(outgoing_counts, "Outgoing")
-
-        # Step 3: Compute incoming stats
-        print_step("Computing incoming link statistics...")
         incoming_counts = [len(v) for v in incoming.values()]
-        incoming_stats = compute_link_stats(incoming_counts, "Incoming")
+        outgoing_stats = compute_link_stats(outgoing_counts)
+        incoming_stats = compute_link_stats(incoming_counts)
+
+        # Display side by side: [Outgoing] [Incoming]
+        print_side_by_side_boxes(
+            "Outgoing Link Statistics", outgoing_stats,
+            "Incoming Link Statistics", incoming_stats,
+        )
 
     return incoming, outgoing_stats, incoming_stats
