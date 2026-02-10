@@ -28,16 +28,12 @@ def main():
                         help="GCS bucket name or local directory path (default: cs528-hw2-jimmyjia)")
     parser.add_argument('--limit', type=int, default=None, help="Limit number of files to read (for testing)")
     parser.add_argument('--prefix', default='generated_htmls/', help="GCS folder prefix (ignored for local)")
-    parser.add_argument('--progress', action='store_true', default=False,
-                        help="Show tqdm progress bar for GCS (experimental, slower)")
-    parser.add_argument('--no-progress', dest='progress', action='store_false',
-                        help="Use stable transfer_manager download (default)")
     args = parser.parse_args()
 
     utils.print_project_banner()
 
     # Stage 1 — auto-detects GCS bucket vs local directory
-    outgoing = read_files(args.source, prefix=args.prefix, limit=args.limit, progress=args.progress)
+    outgoing = read_files(args.source, prefix=args.prefix, limit=args.limit)
 
     # Stage 2
     incoming, outgoing_stats, incoming_stats = pipeline_pagerank.stage2_stats.run_stats(outgoing)
