@@ -124,7 +124,7 @@ def read_gcs_files(bucket_name, prefix="generated_htmls/", progress=True):
 
         # --- Step 1: Connect to GCS and list all HTML blobs ---
         print_step(f"Connecting to bucket: {bucket_name}")
-        client = storage.Client.create_anonymous_client()
+        client = storage.Client()
         bucket = client.bucket(bucket_name)
 
         with Timer("Listing blobs"):
