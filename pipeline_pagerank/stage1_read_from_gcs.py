@@ -224,8 +224,11 @@ def read_gcs_files(bucket_name, prefix="generated_htmls/", method="thread_pool",
     with Timer("Total Stage 1"):
 
         # --- Step 1: List blobs ---
-        print_step(f"Connecting to bucket: {bucket_name}")
-        client = storage.Client()
+        # Use anonymous client — the bucket is public, so no credentials or
+        # quota project are needed.  storage.Client() would require ADC setup
+        # and a billing project, which causes PERMISSION_DENIED in Cloud Shell.
+        print_step(f"Connecting to bucket: {bucket_name} (anonymous)")
+        client = storage.Client.create_anonymous_client()
         bucket = client.bucket(bucket_name)
 
         with Timer("Listing blobs"):
