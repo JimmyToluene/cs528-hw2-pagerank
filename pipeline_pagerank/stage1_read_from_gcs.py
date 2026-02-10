@@ -133,64 +133,52 @@ def _download_with_gcloud(bucket_name, prefix, limit=None):
     temp_dir = tempfile.mkdtemp(prefix='gcs_download_')
 
     try:
-        # Batched download — avoids GCS throttling on Cloud Shell
+        # List blobs via Python API, then batch download with gcloud cp -r
         batch_size = 200
-        gcs_base = f"gs://{bucket_name}/{prefix}"
-        target = limit if limit is not None else "all"
 
-        print_step(f"Downloading {target} files in batches of {batch_size} from {gcs_base}...")
+        print_step(f"Listing files in gs://{bucket_name}/{prefix}...")
+        client = storage.Client.create_anonymous_client()
+        bucket = client.bucket(bucket_name)
+        all_uris = [
+            f"gs://{bucket_name}/{b.name}"
+            for b in bucket.list_blobs(prefix=prefix)
+            if b.name.endswith('.html')
+        ]
+        total = len(all_uris)
+
+        if limit is not None and limit < total:
+            all_uris = all_uris[:limit]
+            total = limit
+
+        num_batches = (total + batch_size - 1) // batch_size
+        print_success(f"Found {total} files — downloading in {num_batches} batches of {batch_size}")
         print()
 
-        batch_num = 0
         total_downloaded = 0
         t_start = time.time()
 
-        while True:
-            start = batch_num * batch_size
-            end = start + batch_size
-
-            # If limit is set, cap the batch so we don't download more than needed
-            if limit is not None:
-                remaining = limit - total_downloaded
-                if remaining <= 0:
-                    break
-                end = min(end, start + remaining)
-
-            batch_uris = [f"{gcs_base}{i}.html" for i in range(start, end)]
-            batch_num += 1
+        for i in range(0, total, batch_size):
+            batch = all_uris[i:i + batch_size]
+            batch_num = i // batch_size + 1
 
             subprocess.run(
-                ['gcloud', 'storage', 'cp', '-r'] + batch_uris + [temp_dir],
+                ['gcloud', 'storage', 'cp', '-r'] + batch + [temp_dir],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
 
-            # Count total html files downloaded so far
-            html_count = sum(
-                1 for _, _, files in os.walk(temp_dir)
-                for f in files if f.endswith('.html')
-            )
-            newly_downloaded = html_count - total_downloaded
-            total_downloaded = html_count
-
-            # Monitoring display
+            total_downloaded += len(batch)
             elapsed = time.time() - t_start
             rate = total_downloaded / elapsed if elapsed > 0 else 0
-            if limit is not None:
-                pct = total_downloaded / limit * 100
-                eta = (limit - total_downloaded) / rate if rate > 0 else 0
-                print(f"  Batch {batch_num} | {total_downloaded}/{limit} files ({pct:.0f}%) | "
-                      f"{rate:.0f} files/s | ETA {eta:.0f}s", end='\r')
-            else:
-                print(f"  Batch {batch_num} | {total_downloaded} files | "
-                      f"{rate:.0f} files/s | elapsed {elapsed:.0f}s", end='\r')
+            remaining = total - total_downloaded
+            eta = remaining / rate if rate > 0 else 0
+            pct = total_downloaded / total * 100
 
-            # If we got fewer files than expected, we've passed the end
-            if newly_downloaded < (end - start):
-                break
+            print(f"  Batch {batch_num}/{num_batches} | {total_downloaded}/{total} ({pct:.0f}%) | "
+                  f"{rate:.0f} files/s | ETA {eta:.0f}s", end='\r')
 
         elapsed = time.time() - t_start
         print()
-        print_success(f"Downloaded {total_downloaded} files in {batch_num} batches ({elapsed:.1f}s)")
+        print_success(f"Downloaded {total_downloaded} files in {num_batches} batches ({elapsed:.1f}s)")
 
         # Walk through temp directory to find downloaded HTML files
         html_files = []
