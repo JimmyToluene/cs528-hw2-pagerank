@@ -137,8 +137,13 @@ def _download_with_gcloud(bucket_name, prefix, limit=None):
             client = storage.Client()
             bucket = client.bucket(bucket_name)
 
-            blobs = [b for b in bucket.list_blobs(prefix=prefix) if b.name.endswith('.html')]
-            blobs = blobs[:limit]  # Take only first N files
+            # Efficiently fetch only the files we need - stop after collecting limit files
+            blobs = []
+            for blob in bucket.list_blobs(prefix=prefix):
+                if blob.name.endswith('.html'):
+                    blobs.append(blob)
+                    if len(blobs) >= limit:
+                        break  # Stop fetching once we have enough
 
             print_success(f"Found {len(blobs)} files to download")
             print_step(f"Downloading {len(blobs)} specific files with gcloud...")
