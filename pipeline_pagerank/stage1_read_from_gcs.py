@@ -161,7 +161,7 @@ def _download_with_gcloud(bucket_name, prefix, limit=None):
             print(f"  Batch {batch_num} (files {start}–{end - 1})...", end='\r')
 
             subprocess.run(
-                ['gcloud', 'storage', 'cp'] + batch_uris + [temp_dir],
+                ['gcloud', 'storage', 'cp', '-r'] + batch_uris + [temp_dir],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
             )
 
