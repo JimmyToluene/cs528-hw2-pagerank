@@ -261,7 +261,7 @@ def _download_http_pool(blobs, bucket_name, max_workers):
 #  Main entry point
 # ---------------------------------------------------------------------------
 
-def read_gcs_files(bucket_name, prefix="generated_htmls/", method="thread_pool", limit=None,
+def read_gcs_files(bucket_name, prefix="generated_htmls/", method="gcloud", limit=None,
                    anonymous=False, project=None):
     """
     Read and parse all HTML files from a GCS bucket.

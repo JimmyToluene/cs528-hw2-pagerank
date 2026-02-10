@@ -27,9 +27,9 @@ def main():
     parser.add_argument('--limit', type=int, default=None, help="Limit number of files to download (for testing)")
     parser.add_argument('--bucket', default='cs528-hw2-jimmyjia')
     parser.add_argument('--prefix', default='generated_htmls/')
-    parser.add_argument('--method', default='http_pool',
-                        choices=['http_pool', 'thread_pool', 'transfer_manager', 'sequential', 'gcloud'],
-                        help="Download strategy (default: http_pool)")
+    parser.add_argument('--method', default='gcloud',
+                        choices=['gcloud', 'http_pool', 'thread_pool', 'transfer_manager', 'sequential'],
+                        help="Download strategy (default: gcloud — fastest in Cloud Shell)")
     parser.add_argument('--project', default=None,
                         help="GCP project ID (auto-detected in Cloud Shell if not set)")
     parser.add_argument('--anonymous', action='store_true', default=False,
