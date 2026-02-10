@@ -131,23 +131,51 @@ def _download_with_gcloud(bucket_name, prefix, limit=None):
     temp_dir = tempfile.mkdtemp(prefix='gcs_download_')
 
     try:
-        # Construct GCS path and download using gcloud
-        gcs_path = f"gs://{bucket_name}/{prefix}*"
-        limit_msg = f" (limiting to {limit} files)" if limit else ""
-        print_step(f"Using gcloud storage cp from {gcs_path}{limit_msg}")
-        print()  # Add blank line before gcloud output
+        # If limit is set, list files first to get specific file names
+        if limit is not None:
+            print_step(f"Listing files to download (limit: {limit})...")
+            client = storage.Client()
+            bucket = client.bucket(bucket_name)
 
-        # Run gcloud storage cp command with native progress output
-        # gcloud will show progress bars, transfer speeds, and completion status
-        try:
-            subprocess.run(
-                ['gcloud', 'storage', 'cp', '-r', gcs_path, temp_dir],
-                check=True  # Raises CalledProcessError on failure
-            )
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(f"gcloud storage cp failed with exit code {e.returncode}")
+            blobs = [b for b in bucket.list_blobs(prefix=prefix) if b.name.endswith('.html')]
+            blobs = blobs[:limit]  # Take only first N files
 
-        print()  # Add blank line after gcloud output
+            print_success(f"Found {len(blobs)} files to download")
+            print_step(f"Downloading {len(blobs)} specific files with gcloud...")
+            print()
+
+            # Download each file individually with gcloud
+            # We could batch this, but for small limits it's fine
+            for blob in blobs:
+                gcs_path = f"gs://{bucket_name}/{blob.name}"
+                try:
+                    subprocess.run(
+                        ['gcloud', 'storage', 'cp', gcs_path, temp_dir],
+                        check=True,
+                        capture_output=True  # Suppress individual file output to avoid spam
+                    )
+                except subprocess.CalledProcessError as e:
+                    raise RuntimeError(f"gcloud storage cp failed for {blob.name}")
+
+            print()
+            print_success(f"Downloaded {len(blobs)} files via gcloud")
+
+        else:
+            # No limit - use wildcard for bulk download (fastest)
+            gcs_path = f"gs://{bucket_name}/{prefix}*"
+            print_step(f"Using gcloud storage cp from {gcs_path}")
+            print()
+
+            # Run gcloud storage cp command with native progress output
+            try:
+                subprocess.run(
+                    ['gcloud', 'storage', 'cp', '-r', gcs_path, temp_dir],
+                    check=True
+                )
+            except subprocess.CalledProcessError as e:
+                raise RuntimeError(f"gcloud storage cp failed with exit code {e.returncode}")
+
+            print()
 
         # Read all downloaded HTML files into memory
         downloaded = {}
@@ -159,12 +187,7 @@ def _download_with_gcloud(bucket_name, prefix, limit=None):
                 if file.endswith('.html'):
                     html_files.append(os.path.join(root, file))
 
-        # Apply limit if specified
-        total_downloaded = len(html_files)
-        if limit is not None and limit < len(html_files):
-            html_files = sorted(html_files)[:limit]
-            print_success(f"Downloaded {total_downloaded} files, limiting to {limit} for processing")
-        else:
+        if not limit:
             print_success(f"Processing {len(html_files)} HTML files via gcloud")
 
         # Read each file into memory
