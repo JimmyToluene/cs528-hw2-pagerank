@@ -25,21 +25,25 @@ This project implements the **PageRank algorithm** as described by Page, Brin, M
 PR(A) = (1 - d) / N + d * (PR(T1)/C(T1) + ... + PR(Tn)/C(Tn))
 ```
 
-Where `d = 0.85` (damping factor), `N` = total pages, `Ti` = pages linking to `A`, `C(Ti)` = outgoing link count of `Ti`.
+Where `d = 0.85` (damping factor)\
+`N` = total pages,\
+`Ti` = pages linking to `A`,\
+`C(Ti)` = outgoing link count of `Ti`.\
+\
 Iteration stops when the sum of PageRank changes across all pages is less than **0.5%** (homework threshold), then continues to **N * 1e-6** (NetworkX-level precision) for ranking stability.
 
 ---
 
-## 3. GCS Bucket Setup
+## 2. GCS Bucket Setup Instructions
 
-### 3.1 Create the Bucket
+### 2.1 Create the Bucket
 
 ```bash
 gcloud storage buckets create gs://cs528-hw2-jimmyjia \
     --location=us-central1 \
 ```
 
-### 3.2 Generate and Upload HTML Files
+### 2.2 Generate and Upload HTML Files
 
 ```bash
 # Generate 20,000 HTML files with max 375 links each
@@ -49,7 +53,7 @@ python generate-content.py -n 20000 -m 375
 gcloud storage cp *.html gs://cs528-hw2-jimmyjia/generated_htmls/
 ```
 
-### 3.3 Make Bucket World-Readable
+### 2.3 Make Bucket World-Readable
 
 ```bash
 gcloud storage buckets add-iam-policy-binding gs://cs528-hw2-jimmyjia \
@@ -60,13 +64,13 @@ gcloud storage buckets add-iam-policy-binding gs://cs528-hw2-jimmyjia \
 
 ---
 
-## 4. How to Run
+## 3. How to Run
 
-### 4.1 Prerequisites
+### 3.1 Prerequisites
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone https://github.com/JimmyToluene/cs528-hw2-pagerank
 cd cs528-hw2-pagerank
 
 # Create virtual environment and install dependencies
@@ -75,13 +79,13 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 4.2 Run Against GCS Bucket (main pipeline)
+### 3.2 Run Against GCS Bucket (main pipeline)
 
 ```bash
 python main.py
 ```
 
-### 4.3 Run Locally (for testing / development)
+### 3.3 Run Locally (for testing / development)
 
 ```bash
 # First generate test files if not already present
@@ -93,7 +97,7 @@ python test_local.py
 
 ---
 
-## 5. CLI Parameters
+## 4. CLI Parameters
 
 ### `main.py`
 
@@ -118,10 +122,6 @@ python main.py --limit 100 --no-progress
 python main.py --bucket another-bucket --prefix html_files/
 ```
 
-### `test_local.py`
-
-No CLI parameters. Edit the script directly to change the local directory path or file limit.
-
 ### `generate-content.py` (provided script)
 
 | Parameter | Default | Description |
@@ -132,33 +132,33 @@ No CLI parameters. Edit the script directly to change the local directory path o
 ---
 
 
-## 6. Output and Timing
+## 5. Output and Timing
 
-### 6.1 Local Machine
+### 5.1 Local Machine
 
 ```
 Environment: [WSL Ubuntu 24.04,AMD Ryzen 7 9700X, 32GB]
-Total pipeline time: [X.XX]s
+Total pipeline time: 287.88 s
   Stage 1 (read):      280.68 s
   Stage 2 (stats):     0.73 s
   Stage 3 (pagerank):  1.07 s
   Stage 4 (validate):  5.40 s
 ```
 
-### 6.2 Google Cloud Shell
+### 5.2 Google Cloud Shell
 
 ```
-Environment: Cloud Shell (e2-small, Debian)
-Total pipeline time: [X.XX]s
-  Stage 1 (read):      [X.XX]s
-  Stage 2 (stats):     [X.XX]s
-  Stage 3 (pagerank):  [X.XX]s
-  Stage 4 (validate):  [X.XX]s
+Environment: Cloud VM instance (e2-standard, Debian)
+Total pipeline time: 209.12 s
+  Stage 1 (read):      180.43 s
+  Stage 2 (stats):     1.85 s
+  Stage 3 (pagerank):  2.79 s
+  Stage 4 (validate):  24.15 s
 ```
 
 ---
 
-## 7. Cloud Billing
+## 6. Cloud Billing
 
 > *Insert screenshot of the GCP Billing Console showing total spend for this project.*
 
@@ -166,7 +166,7 @@ Total spend: $X.XX
 
 ---
 
-## 8. References
+## 7. References
 
 1. Page, L., Brin, S., Motwani, R., & Winograd, T. (1999). "The PageRank Citation Ranking: Bringing Order to the Web." Stanford InfoLab. http://ilpubs.stanford.edu:8090/422/1/1999-66.pdf
 
