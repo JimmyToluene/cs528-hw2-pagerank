@@ -143,6 +143,7 @@ def _download_with_gcloud(bucket_name, prefix, limit=None):
 
         batch_num = 0
         total_downloaded = 0
+        t_start = time.time()
 
         while True:
             start = batch_num * batch_size
@@ -158,8 +159,6 @@ def _download_with_gcloud(bucket_name, prefix, limit=None):
             batch_uris = [f"{gcs_base}{i}.html" for i in range(start, end)]
             batch_num += 1
 
-            print(f"  Batch {batch_num} (files {start}–{end - 1})...", end='\r')
-
             subprocess.run(
                 ['gcloud', 'storage', 'cp', '-r'] + batch_uris + [temp_dir],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
@@ -173,12 +172,25 @@ def _download_with_gcloud(bucket_name, prefix, limit=None):
             newly_downloaded = html_count - total_downloaded
             total_downloaded = html_count
 
+            # Monitoring display
+            elapsed = time.time() - t_start
+            rate = total_downloaded / elapsed if elapsed > 0 else 0
+            if limit is not None:
+                pct = total_downloaded / limit * 100
+                eta = (limit - total_downloaded) / rate if rate > 0 else 0
+                print(f"  Batch {batch_num} | {total_downloaded}/{limit} files ({pct:.0f}%) | "
+                      f"{rate:.0f} files/s | ETA {eta:.0f}s", end='\r')
+            else:
+                print(f"  Batch {batch_num} | {total_downloaded} files | "
+                      f"{rate:.0f} files/s | elapsed {elapsed:.0f}s", end='\r')
+
             # If we got fewer files than expected, we've passed the end
             if newly_downloaded < (end - start):
                 break
 
+        elapsed = time.time() - t_start
         print()
-        print_success(f"Downloaded {total_downloaded} files in {batch_num} batches")
+        print_success(f"Downloaded {total_downloaded} files in {batch_num} batches ({elapsed:.1f}s)")
 
         # Walk through temp directory to find downloaded HTML files
         html_files = []
