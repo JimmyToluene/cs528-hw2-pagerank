@@ -27,17 +27,21 @@ def main():
     parser.add_argument('--limit', type=int, default=None, help="Limit number of files to download (for testing)")
     parser.add_argument('--bucket', default='cs528-hw2-jimmyjia')
     parser.add_argument('--prefix', default='generated_htmls/')
+    parser.add_argument('--use-gcloud', action='store_true', default=True,
+                        help="Use gcloud storage cp for fast downloads (recommended for Cloud Shell, default: on)")
+    parser.add_argument('--no-gcloud', dest='use_gcloud', action='store_false',
+                        help="Use Python client library instead of gcloud")
     parser.add_argument('--progress', action='store_true', default=True,
-                        help="Show download progress bar (experimental, default: on)")
+                        help="Show download progress bar (experimental, default: on, only used with --no-gcloud)")
     parser.add_argument('--no-progress', dest='progress', action='store_false',
-                        help="Use stable transfer_manager download (no progress bar)")
+                        help="Use stable transfer_manager download (no progress bar, only used with --no-gcloud)")
     args = parser.parse_args()
 
     utils.print_project_banner()
 
     # Stage 1
     outgoing = pipeline_pagerank.stage1_read_from_gcs.read_gcs_files(
-        args.bucket, args.prefix, progress=args.progress
+        args.bucket, args.prefix, use_gcloud=args.use_gcloud, progress=args.progress
     )
     # utils.print_dict_sanity_check(outgoing, "Outgoing")
 

@@ -27,6 +27,9 @@
 import re
 import os
 import io
+import subprocess
+import tempfile
+import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from google.cloud import storage
 from google.cloud.storage import transfer_manager
@@ -105,15 +108,80 @@ def _download_with_progress(blobs, max_workers):
     return downloaded
 
 
-def read_gcs_files(bucket_name, prefix="generated_htmls/", progress=True):
+def _download_with_gcloud(bucket_name, prefix):
+    """
+    Fast path — uses gcloud storage cp command via subprocess.
+
+    This approach matches the professor's solution and avoids API rate limits
+    by using gcloud's optimized transfer protocol instead of individual
+    blob downloads. Much faster on Cloud Shell (4x faster than laptop).
+
+    Downloads files to a temporary directory, reads them into memory,
+    then cleans up.
+
+    Returns:
+        dict: blob_name -> raw bytes
+    """
+    # Create temporary directory for downloads
+    temp_dir = tempfile.mkdtemp(prefix='gcs_download_')
+
+    try:
+        # Construct GCS path and download using gcloud
+        gcs_path = f"gs://{bucket_name}/{prefix}*"
+        print_step(f"Using gcloud storage cp from {gcs_path}")
+
+        # Run gcloud storage cp command
+        # -r for recursive, redirect stderr to check for errors
+        result = subprocess.run(
+            ['gcloud', 'storage', 'cp', '-r', gcs_path, temp_dir],
+            capture_output=True,
+            text=True,
+            check=False
+        )
+
+        if result.returncode != 0:
+            raise RuntimeError(f"gcloud storage cp failed: {result.stderr}")
+
+        # Read all downloaded HTML files into memory
+        downloaded = {}
+        html_files = []
+
+        # Walk through temp directory to find all HTML files
+        for root, dirs, files in os.walk(temp_dir):
+            for file in files:
+                if file.endswith('.html'):
+                    html_files.append(os.path.join(root, file))
+
+        print_success(f"Downloaded {len(html_files)} HTML files via gcloud")
+
+        # Read each file into memory
+        for filepath in html_files:
+            # Extract blob name (relative path from prefix)
+            filename = os.path.basename(filepath)
+            blob_name = f"{prefix}{filename}"
+
+            with open(filepath, 'rb') as f:
+                downloaded[blob_name] = f.read()
+
+        return downloaded
+
+    finally:
+        # Clean up temporary directory
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def read_gcs_files(bucket_name, prefix="generated_htmls/", use_gcloud=True, progress=True):
     """
     Read and parse all HTML files from a GCS bucket.
 
     Args:
         bucket_name (str): Name of the GCS bucket (e.g., 'cs528-hw2-jimmyjia')
         prefix (str): Folder prefix within the bucket (e.g., 'generated_htmls/')
-        progress (bool): If True, use experimental tqdm progress bar.
-                         If False, use stable transfer_manager.download_many().
+        use_gcloud (bool): If True, use gcloud storage cp (recommended for Cloud Shell).
+                          If False, use Python client library with blob downloads.
+        progress (bool): If True and use_gcloud=False, use experimental tqdm progress bar.
+                         If False and use_gcloud=False, use stable transfer_manager.download_many().
+                         Ignored when use_gcloud=True.
 
     Returns:
         dict: page_id (str) -> list of outgoing link target IDs (list[str])
@@ -122,27 +190,32 @@ def read_gcs_files(bucket_name, prefix="generated_htmls/", progress=True):
 
     with Timer("Total Stage 1"):
 
-        # --- Step 1: Connect to GCS and list all HTML blobs ---
-        print_step(f"Connecting to bucket: {bucket_name}")
-        client = storage.Client()
-        bucket = client.bucket(bucket_name)
+        # --- Step 1: Download files ---
+        if use_gcloud:
+            # Fast path: use gcloud storage cp command
+            with Timer("Download (gcloud)"):
+                downloaded = _download_with_gcloud(bucket_name, prefix)
+        else:
+            # Original path: use Python client library
+            print_step(f"Connecting to bucket: {bucket_name}")
+            client = storage.Client()
+            bucket = client.bucket(bucket_name)
 
-        with Timer("Listing blobs"):
-            blobs = [b for b in bucket.list_blobs(prefix=prefix) if b.name.endswith('.html')]
-        print_success(f"Found {len(blobs)} HTML files")
+            with Timer("Listing blobs"):
+                blobs = [b for b in bucket.list_blobs(prefix=prefix) if b.name.endswith('.html')]
+            print_success(f"Found {len(blobs)} HTML files")
 
-        # --- Step 2: Download blobs ---
-        max_workers = min(32, (os.cpu_count() or 4) + 4)
-        mode = "experimental (tqdm)" if progress else "stable (transfer_manager)"
-        print_step(f"Downloading {len(blobs)} files with {max_workers} workers [{mode}]...")
+            max_workers = min(32, (os.cpu_count() or 4) + 4)
+            mode = "experimental (tqdm)" if progress else "stable (transfer_manager)"
+            print_step(f"Downloading {len(blobs)} files with {max_workers} workers [{mode}]...")
 
-        with Timer("Download"):
-            if progress:
-                downloaded = _download_with_progress(blobs, max_workers)
-            else:
-                downloaded = _download_stable(blobs, max_workers)
+            with Timer("Download"):
+                if progress:
+                    downloaded = _download_with_progress(blobs, max_workers)
+                else:
+                    downloaded = _download_stable(blobs, max_workers)
 
-        # --- Step 3: Parse each downloaded file to extract outgoing links ---
+        # --- Step 2: Parse each downloaded file to extract outgoing links ---
         print_step("Parsing HTML files for links...")
         with Timer("Parsing"):
             outgoing = {}
