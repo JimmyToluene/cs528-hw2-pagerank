@@ -30,6 +30,8 @@ import io
 import subprocess
 import tempfile
 import shutil
+import time
+import signal
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from google.cloud import storage
 from google.cloud.storage import transfer_manager
@@ -110,14 +112,14 @@ def _download_with_progress(blobs, max_workers):
 
 def _download_with_gcloud(bucket_name, prefix, limit=None):
     """
-    Fast path — uses gcloud storage cp command via subprocess.
+    Fast path — uses gcloud storage cp -r command via subprocess.
 
     This approach matches the professor's solution and avoids API rate limits
-    by using gcloud's optimized transfer protocol instead of individual
-    blob downloads. Much faster on Cloud Shell (4x faster than laptop).
+    by using gcloud's optimized transfer protocol. Much faster on Cloud Shell
+    (4x faster than laptop).
 
-    Downloads files to a temporary directory, reads them into memory,
-    then cleans up.
+    When limit is set, starts cp -r in background and monitors downloaded files,
+    terminating the process once N files are downloaded.
 
     Args:
         bucket_name (str): GCS bucket name
@@ -131,44 +133,59 @@ def _download_with_gcloud(bucket_name, prefix, limit=None):
     temp_dir = tempfile.mkdtemp(prefix='gcs_download_')
 
     try:
-        # If limit is set, use Python API for listing (fast with early break)
-        # then gcloud cp for downloading (avoids rate limits)
+        gcs_wildcard = f"gs://{bucket_name}/{prefix}*"
+
+        # Use recursive cp -r (professor's fast method)
         if limit is not None:
-            print_step(f"Listing first {limit} files (Python API with early break)...")
-
-            client = storage.Client()
-            bucket = client.bucket(bucket_name)
-
-            # Efficiently fetch only the files we need - stop after collecting limit files
-            file_paths = []
-            for blob in bucket.list_blobs(prefix=prefix):
-                if blob.name.endswith('.html'):
-                    file_paths.append(f"gs://{bucket_name}/{blob.name}")
-                    if len(file_paths) >= limit:
-                        break  # Stop immediately after getting N files
-
-            print_success(f"Found {len(file_paths)} files")
-            print_step(f"Downloading {len(file_paths)} files with gcloud cp...")
+            print_step(f"Downloading with gcloud cp -r (will stop after {limit} files)...")
             print()
 
-            # Download with gcloud cp (no rate limits, CloudShell optimized)
-            if file_paths:
-                try:
-                    # Pass all files to single gcloud cp command
-                    subprocess.run(
-                        ['gcloud', 'storage', 'cp'] + file_paths + [temp_dir],
-                        check=True
-                    )
-                except subprocess.CalledProcessError as e:
-                    raise RuntimeError(f"gcloud storage cp failed with exit code {e.returncode}")
+            # Start gcloud storage cp -r in background
+            process = subprocess.Popen(
+                ['gcloud', 'storage', 'cp', '-r', gcs_wildcard, temp_dir],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+
+            # Monitor downloaded files
+            downloaded_count = 0
+            print(f"  Monitoring downloads (target: {limit} files)...")
+
+            try:
+                while process.poll() is None:  # While process is running
+                    # Count .html files in temp directory
+                    html_count = 0
+                    for root, dirs, files in os.walk(temp_dir):
+                        for file in files:
+                            if file.endswith('.html'):
+                                html_count += 1
+
+                    if html_count > downloaded_count:
+                        downloaded_count = html_count
+                        print(f"  Downloaded: {downloaded_count} files...", end='\r')
+
+                    # If we have enough files, terminate the process
+                    if html_count >= limit:
+                        print(f"\n  Reached {limit} files, terminating download...")
+                        process.terminate()
+                        time.sleep(0.5)  # Give it time to terminate gracefully
+                        if process.poll() is None:
+                            process.kill()  # Force kill if still running
+                        break
+
+                    time.sleep(0.1)  # Check every 100ms
+
+            except KeyboardInterrupt:
+                process.terminate()
+                process.wait()
+                raise
 
             print()
-            print_success(f"Downloaded {len(file_paths)} files via gcloud")
+            print_success(f"Downloaded {downloaded_count} files via gcloud cp -r")
 
         else:
-            # No limit - use recursive download for maximum speed
-            gcs_wildcard = f"gs://{bucket_name}/{prefix}*"
-            print_step(f"Downloading all files from {gcs_wildcard}")
+            # No limit - use full recursive download (fastest)
+            print_step(f"Downloading all files with gcloud cp -r from {gcs_wildcard}")
             print()
 
             try:
@@ -193,8 +210,6 @@ def _download_with_gcloud(bucket_name, prefix, limit=None):
 
         # Read files into memory
         downloaded = {}
-
-        # Read each file into memory
         for filepath in html_files:
             # Extract blob name (relative path from prefix)
             filename = os.path.basename(filepath)
