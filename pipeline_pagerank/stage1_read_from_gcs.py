@@ -198,7 +198,8 @@ def _download_gcloud(blobs, bucket_name, prefix):
 #  Main entry point
 # ---------------------------------------------------------------------------
 
-def read_gcs_files(bucket_name, prefix="generated_htmls/", method="thread_pool", limit=None, anonymous=False):
+def read_gcs_files(bucket_name, prefix="generated_htmls/", method="thread_pool", limit=None,
+                   anonymous=False, project=None):
     """
     Read and parse all HTML files from a GCS bucket.
 
@@ -219,6 +220,8 @@ def read_gcs_files(bucket_name, prefix="generated_htmls/", method="thread_pool",
             heavily throttled by Google). If False (default), use authenticated
             client via ADC — much faster in Cloud Shell where credentials are
             already configured.
+        project (str, optional): GCP project ID. If None, auto-detected from
+            DEVSHELL_PROJECT_ID or GOOGLE_CLOUD_PROJECT env vars.
 
     Returns:
         dict: page_id (str) -> list of outgoing link target IDs (list[str])
@@ -236,8 +239,11 @@ def read_gcs_files(bucket_name, prefix="generated_htmls/", method="thread_pool",
         else:
             # Authenticated client via ADC — uses Cloud Shell's credentials.
             # Much higher rate limits and potentially gRPC transport.
-            print_step(f"Connecting to bucket: {bucket_name} (authenticated)")
-            client = storage.Client()
+            # Pass project explicitly to avoid hanging on metadata server
+            # auto-detection (a known Cloud Shell issue).
+            proj = project or os.environ.get('DEVSHELL_PROJECT_ID') or os.environ.get('GOOGLE_CLOUD_PROJECT')
+            print_step(f"Connecting to bucket: {bucket_name} (authenticated, project={proj})")
+            client = storage.Client(project=proj)
         bucket = client.bucket(bucket_name)
 
         with Timer("Listing blobs"):
