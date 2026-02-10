@@ -205,21 +205,43 @@ def _download_http_pool(blobs, bucket_name, max_workers):
     return downloaded
 
 
-
+def _download_gcloud(bucket_name, prefix, limit=None):
     """
-    gcloud storage cp in batches with tqdm.
+    Fully self-contained gcloud path — lists AND downloads using only gcloud CLI.
 
-    Shells out to `gcloud storage cp` for each batch of URIs.
-    Fastest on Cloud Shell where gcloud uses an optimized transfer protocol.
-    tqdm updates after each batch completes.
+    No Python SDK needed — avoids all authentication / list_blobs() issues.
+    Uses `gcloud storage ls` to list files, then `gcloud storage cp` in batches.
+    Fastest on Cloud Shell where gcloud uses an optimized internal protocol.
+
+    Returns:
+        dict: blob_name -> raw bytes
     """
     temp_dir = tempfile.mkdtemp(prefix='gcs_download_')
     batch_size = 200
 
     try:
-        all_uris = [f"gs://{bucket_name}/{b.name}" for b in blobs]
+        # --- List files using gcloud CLI ---
+        print_step(f"Listing files via gcloud storage ls ...")
+        with Timer("Listing (gcloud)"):
+            result = subprocess.run(
+                ['gcloud', 'storage', 'ls', f'gs://{bucket_name}/{prefix}*.html'],
+                capture_output=True, text=True,
+            )
+            if result.returncode != 0:
+                raise RuntimeError(f"gcloud storage ls failed: {result.stderr.strip()}")
+            all_uris = [line.strip() for line in result.stdout.splitlines() if line.strip().endswith('.html')]
+
         total = len(all_uris)
+        print_success(f"Found {total} HTML files")
+
+        if limit is not None and limit < total:
+            all_uris = all_uris[:limit]
+            total = limit
+            print_success(f"Limiting to {limit} files")
+
+        # --- Download in batches ---
         num_batches = (total + batch_size - 1) // batch_size
+        print_step(f"Downloading {total} files in {num_batches} batches ...")
 
         with tqdm(
             total=total,
@@ -232,7 +254,7 @@ def _download_http_pool(blobs, bucket_name, max_workers):
                 batch = all_uris[i:i + batch_size]
 
                 result = subprocess.run(
-                    ['gcloud', 'storage', 'cp', '-r'] + batch + [temp_dir],
+                    ['gcloud', 'storage', 'cp'] + batch + [temp_dir],
                     stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
                 )
                 if result.returncode != 0:
@@ -241,7 +263,7 @@ def _download_http_pool(blobs, bucket_name, max_workers):
 
                 pbar.update(len(batch))
 
-        # Read downloaded files back into memory
+        # --- Read downloaded files into memory ---
         downloaded = {}
         for root, dirs, files in os.walk(temp_dir):
             for file in files:
@@ -294,47 +316,45 @@ def read_gcs_files(bucket_name, prefix="generated_htmls/", method="gcloud", limi
 
     with Timer("Total Stage 1"):
 
-        # --- Step 1: List blobs ---
-        if anonymous:
-            # Anonymous client — no credentials needed, but Google throttles
-            # anonymous API requests aggressively (~7s/file observed).
-            print_step(f"Connecting to bucket: {bucket_name} (anonymous)")
-            client = storage.Client.create_anonymous_client()
+        if method == "gcloud":
+            # --- gcloud path: fully self-contained, no Python SDK needed ---
+            # Uses `gcloud storage ls` + `gcloud storage cp` — avoids all
+            # authentication / list_blobs() issues in Cloud Shell.
+            with Timer("Download (gcloud)"):
+                downloaded = _download_gcloud(bucket_name, prefix, limit=limit)
         else:
-            # Authenticated client via ADC — uses Cloud Shell's credentials.
-            # Much higher rate limits and potentially gRPC transport.
-            # Pass project explicitly to avoid hanging on metadata server
-            # auto-detection (a known Cloud Shell issue).
-            proj = project or os.environ.get('DEVSHELL_PROJECT_ID') or os.environ.get('GOOGLE_CLOUD_PROJECT')
-            print_step(f"Connecting to bucket: {bucket_name} (authenticated, project={proj})")
-            client = storage.Client(project=proj)
-        bucket = client.bucket(bucket_name)
-
-        with Timer("Listing blobs"):
-            blobs = [b for b in bucket.list_blobs(prefix=prefix) if b.name.endswith('.html')]
-        print_success(f"Found {len(blobs)} HTML files")
-
-        if limit is not None and limit < len(blobs):
-            blobs = blobs[:limit]
-            print_success(f"Limiting to {limit} files")
-
-        # --- Step 2: Download ---
-        max_workers = min(32, (os.cpu_count() or 4) + 4)
-        print_step(f"Downloading {len(blobs)} files [{method}] ...")
-
-        with Timer("Download"):
-            if method == "http_pool":
-                downloaded = _download_http_pool(blobs, bucket_name, max_workers)
-            elif method == "thread_pool":
-                downloaded = _download_thread_pool(blobs, max_workers)
-            elif method == "transfer_manager":
-                downloaded = _download_transfer_manager(blobs, max_workers)
-            elif method == "sequential":
-                downloaded = _download_sequential(blobs)
-            elif method == "gcloud":
-                downloaded = _download_gcloud(blobs, bucket_name, prefix)
+            # --- Python SDK path: list blobs, then download ---
+            if anonymous:
+                print_step(f"Connecting to bucket: {bucket_name} (anonymous)")
+                client = storage.Client.create_anonymous_client()
             else:
-                raise ValueError(f"Unknown download method: {method!r}")
+                proj = project or os.environ.get('DEVSHELL_PROJECT_ID') or os.environ.get('GOOGLE_CLOUD_PROJECT')
+                print_step(f"Connecting to bucket: {bucket_name} (authenticated, project={proj})")
+                client = storage.Client(project=proj)
+            bucket = client.bucket(bucket_name)
+
+            with Timer("Listing blobs"):
+                blobs = [b for b in bucket.list_blobs(prefix=prefix) if b.name.endswith('.html')]
+            print_success(f"Found {len(blobs)} HTML files")
+
+            if limit is not None and limit < len(blobs):
+                blobs = blobs[:limit]
+                print_success(f"Limiting to {limit} files")
+
+            max_workers = min(32, (os.cpu_count() or 4) + 4)
+            print_step(f"Downloading {len(blobs)} files [{method}] ...")
+
+            with Timer("Download"):
+                if method == "http_pool":
+                    downloaded = _download_http_pool(blobs, bucket_name, max_workers)
+                elif method == "thread_pool":
+                    downloaded = _download_thread_pool(blobs, max_workers)
+                elif method == "transfer_manager":
+                    downloaded = _download_transfer_manager(blobs, max_workers)
+                elif method == "sequential":
+                    downloaded = _download_sequential(blobs)
+                else:
+                    raise ValueError(f"Unknown download method: {method!r}")
 
         # --- Step 3: Parse HTML ---
         print_step("Parsing HTML files for links...")
