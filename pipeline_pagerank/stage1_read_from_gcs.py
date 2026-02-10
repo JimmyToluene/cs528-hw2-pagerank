@@ -198,7 +198,7 @@ def _download_gcloud(blobs, bucket_name, prefix):
 #  Main entry point
 # ---------------------------------------------------------------------------
 
-def read_gcs_files(bucket_name, prefix="generated_htmls/", method="thread_pool", limit=None):
+def read_gcs_files(bucket_name, prefix="generated_htmls/", method="thread_pool", limit=None, anonymous=False):
     """
     Read and parse all HTML files from a GCS bucket.
 
@@ -215,6 +215,10 @@ def read_gcs_files(bucket_name, prefix="generated_htmls/", method="thread_pool",
             "sequential"        — one-by-one download + tqdm
             "gcloud"            — gcloud storage cp in batches + tqdm
         limit (int, optional): Maximum number of files to download.
+        anonymous (bool): If True, use anonymous client (no credentials needed but
+            heavily throttled by Google). If False (default), use authenticated
+            client via ADC — much faster in Cloud Shell where credentials are
+            already configured.
 
     Returns:
         dict: page_id (str) -> list of outgoing link target IDs (list[str])
@@ -224,11 +228,16 @@ def read_gcs_files(bucket_name, prefix="generated_htmls/", method="thread_pool",
     with Timer("Total Stage 1"):
 
         # --- Step 1: List blobs ---
-        # Use anonymous client — the bucket is public, so no credentials or
-        # quota project are needed.  storage.Client() would require ADC setup
-        # and a billing project, which causes PERMISSION_DENIED in Cloud Shell.
-        print_step(f"Connecting to bucket: {bucket_name} (anonymous)")
-        client = storage.Client.create_anonymous_client()
+        if anonymous:
+            # Anonymous client — no credentials needed, but Google throttles
+            # anonymous API requests aggressively (~7s/file observed).
+            print_step(f"Connecting to bucket: {bucket_name} (anonymous)")
+            client = storage.Client.create_anonymous_client()
+        else:
+            # Authenticated client via ADC — uses Cloud Shell's credentials.
+            # Much higher rate limits and potentially gRPC transport.
+            print_step(f"Connecting to bucket: {bucket_name} (authenticated)")
+            client = storage.Client()
         bucket = client.bucket(bucket_name)
 
         with Timer("Listing blobs"):

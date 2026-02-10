@@ -30,13 +30,16 @@ def main():
     parser.add_argument('--method', default='thread_pool',
                         choices=['thread_pool', 'transfer_manager', 'sequential', 'gcloud'],
                         help="Download strategy (default: thread_pool)")
+    parser.add_argument('--anonymous', action='store_true', default=False,
+                        help="Use anonymous GCS client (slow, heavily throttled). "
+                             "Default: use authenticated client via ADC (fast).")
     args = parser.parse_args()
 
     utils.print_project_banner()
 
     # Stage 1
     outgoing = pipeline_pagerank.stage1_read_from_gcs.read_gcs_files(
-        args.bucket, args.prefix, method=args.method, limit=args.limit
+        args.bucket, args.prefix, method=args.method, limit=args.limit, anonymous=args.anonymous
     )
     # utils.print_dict_sanity_check(outgoing, "Outgoing")
 
